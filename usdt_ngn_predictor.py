@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="USDT/NGN Oracle",
     page_icon="₦",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ─────────────────────────────────────────────
@@ -361,27 +361,43 @@ h1,h2,h3 { font-family: 'IBM Plex Mono', monospace !important; }
     .ocard { overflow-x: auto !important; }
 }
 
-/* ── FLOATING SIDEBAR TOGGLE BUTTON (mobile only) ── */
-[data-testid="collapsedControl"] {
+/* ── SIDEBAR TOGGLE BUTTON — always visible ── */
+/* Target all known Streamlit sidebar toggle selectors */
+[data-testid="collapsedControl"],
+button[kind="header"],
+.st-emotion-cache-1dp5vir,
+[data-testid="stSidebarCollapsedControl"] {
     display: flex !important;
     visibility: visible !important;
+    opacity: 1 !important;
     background: var(--green) !important;
     border-radius: 50% !important;
-    width: 48px !important;
-    height: 48px !important;
+    width: 44px !important;
+    height: 44px !important;
     align-items: center !important;
     justify-content: center !important;
-    box-shadow: 0 4px 20px rgba(5,214,138,0.4) !important;
+    box-shadow: 0 4px 20px rgba(5,214,138,0.35) !important;
     position: fixed !important;
-    bottom: 24px !important;
+    top: 50% !important;
     left: 16px !important;
-    z-index: 9999 !important;
+    transform: translateY(-50%) !important;
+    z-index: 99999 !important;
     border: none !important;
     cursor: pointer !important;
+    transition: all 0.2s !important;
 }
 
-[data-testid="collapsedControl"] svg {
+[data-testid="collapsedControl"]:hover,
+[data-testid="stSidebarCollapsedControl"]:hover {
+    background: #04c07c !important;
+    box-shadow: 0 6px 28px rgba(5,214,138,0.55) !important;
+    transform: translateY(-50%) scale(1.08) !important;
+}
+
+[data-testid="collapsedControl"] svg,
+[data-testid="stSidebarCollapsedControl"] svg {
     fill: #080c14 !important;
+    color: #080c14 !important;
     width: 20px !important;
     height: 20px !important;
 }
