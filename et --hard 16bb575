@@ -1,0 +1,19 @@
+[33m511aec9[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m new commit
+[33m31946be[m new commit
+[33m11cf28a[m new commit
+[33mb205857[m new commit
+[33ma12d2a3[m new commit - adding expansion feature on toggle
+[33m16bb575[m new commit - fixed the auto refresh button
+[33m2c1758d[m new commit - adding extra info
+[33m52ae1c8[m new commit - send price alert to users
+[33mf5e2da4[m new commit - to add telegram alert feature
+[33m6b3d808[m new commit - to use aboki fx for black market rate
+[33m7a55a10[m new commit - Token limit raised from 8,192 to 16,384
+[33m86d8fc9[m new commit - remove hardcoded API keys
+[33mc73ae50[m new commit
+[33m5eb918d[m new commit - fixed wq error
+[33md114f3b[m fix conflicts
+[33m121d246[m Remove API key inputs, load keys from secrets
+[33ma8f4c8c[m Add Streamlit and Requests to requirements
+[33mc738512[m first commit with python code
+[33mfdd8986[m Initial commit
