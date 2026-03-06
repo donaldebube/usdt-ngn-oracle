@@ -346,8 +346,8 @@ try:
     GEMINI_KEY = st.secrets["GEMINI_KEY"]
     NEWS_KEY = st.secrets["NEWS_KEY"]
 except Exception:
-    GEMINI_KEY = ""
-    NEWS_KEY = ""
+    GEMINI_KEY = "AIzaSyDap6R0Ix2FjZk8yRHCWTAsSzP8XTpQOpc"
+    NEWS_KEY = "3be3acf95fc94341bc14d64c0582dadb"
 
 
 
@@ -367,7 +367,7 @@ def gemini(prompt: str, key: str, system: str = "") -> str:
     parts.append({"text": prompt})
     payload = {
         "contents": [{"parts": parts}],
-        "generationConfig": {"temperature": 0.25, "maxOutputTokens": 8192}
+        "generationConfig": {"temperature": 0.25, "maxOutputTokens": 16384}
     }
     last_error = ""
     for model in models:
@@ -700,6 +700,7 @@ Return ONLY this exact JSON (no markdown, no backticks):
 
     try:
         clean = raw.strip()
+        # Strip markdown code fences
         if "```" in clean:
             parts = clean.split("```")
             for p in parts:
@@ -709,20 +710,72 @@ Return ONLY this exact JSON (no markdown, no backticks):
                 if p.startswith("{"):
                     clean = p
                     break
+        # Find JSON start
         if not clean.startswith("{"):
             idx = clean.find("{")
             if idx >= 0:
                 clean = clean[idx:]
+        # Find last complete closing brace
         last = clean.rfind("}")
         if last >= 0:
             clean = clean[:last+1]
+        # Try to parse — if truncated, patch it closed
+        try:
+            parsed = json.loads(clean)
+        except json.JSONDecodeError:
+            # Response was cut off — try to close open arrays/objects
+            open_braces = clean.count("{") - clean.count("}")
+            open_brackets = clean.count("[") - clean.count("]")
+            # Close any open string first
+            if clean.count('"') % 2 != 0:
+                clean += '"'
+            # Close open arrays and objects
+            clean += "]" * max(0, open_brackets)
+            clean += "}" * max(0, open_braces)
+            try:
+                parsed = json.loads(clean)
+            except:
+                # Last resort: extract what we can with regex
+                import re
+                result = {}
+                for field in ["black_market_rate","official_rate","spread_pct",
+                              "prediction_direction","predicted_low","predicted_high",
+                              "predicted_midpoint","confidence_score","executive_summary",
+                              "trade_recommendation","accuracy_basis","weekly_outlook"]:
+                    # Try number
+                    m = re.search(rf'"{field}"\s*:\s*([0-9.]+)', clean)
+                    if m:
+                        result[field] = float(m.group(1))
+                        continue
+                    # Try string
+                    m = re.search(rf'"{field}"\s*:\s*"([^"]+)', clean)
+                    if m:
+                        result[field] = m.group(1)
+                parsed = result
 
-        parsed = json.loads(clean)
         parsed["fetch_success"] = True
         parsed["raw_signals"] = signals
         parsed["rates"] = rates
+        # Fill in defaults for any missing fields
+        parsed.setdefault("prediction_direction", "NEUTRAL")
+        parsed.setdefault("confidence_score", 50)
+        parsed.setdefault("executive_summary", "Analysis partially available — response was truncated.")
+        parsed.setdefault("key_drivers", [])
+        parsed.setdefault("risk_factors", [])
+        parsed.setdefault("trade_recommendation", "Insufficient data for recommendation.")
+        parsed.setdefault("weekly_outlook", "N/A")
+        parsed.setdefault("best_time_to_convert", "N/A")
+        parsed.setdefault("black_market_premium_analysis", "N/A")
+        parsed.setdefault("accuracy_basis", "N/A")
+        parsed.setdefault("sources_analyzed", len(signals))
+        parsed.setdefault("news_sentiment_score", 0)
+        parsed.setdefault("oil_score", 0)
+        parsed.setdefault("usd_strength_score", 0)
+        parsed.setdefault("cbn_policy_score", 0)
+        parsed.setdefault("crypto_sentiment_score", 0)
+        parsed.setdefault("political_risk_score", 0)
         return parsed
-    except:
+    except Exception as e:
         return {
             "fetch_success": False,
             "error": "Could not parse AI response",
