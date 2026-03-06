@@ -363,6 +363,25 @@ h1,h2,h3 { font-family: 'IBM Plex Mono', monospace !important; }
 
 /* sidebar toggle handled by custom JS button */
 
+/* ── TOGGLE BUTTON STYLE ── */
+button[data-testid="baseButton-secondary"][key="sidebar_toggle"],
+div[data-testid="stButton"]:first-child button {
+    background: var(--card) !important;
+    border: 1px solid var(--border2) !important;
+    color: var(--text) !important;
+    border-radius: 8px !important;
+    font-size: 18px !important;
+    width: 42px !important;
+    height: 42px !important;
+    padding: 0 !important;
+    line-height: 1 !important;
+}
+div[data-testid="stButton"]:first-child button:hover {
+    border-color: var(--green) !important;
+    color: var(--green) !important;
+    background: var(--green2) !important;
+}
+
 /* Make sidebar overlay the content on mobile instead of pushing it */
 @media (max-width: 768px) {
     section[data-testid="stSidebar"] {
@@ -377,87 +396,7 @@ h1,h2,h3 { font-family: 'IBM Plex Mono', monospace !important; }
 """, unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────
-# SIDEBAR TOGGLE BUTTON (custom JS — works on all screen sizes)
-# ─────────────────────────────────────────────
-st.markdown("""
-<style>
-#sidebar-toggle-btn {
-    position: fixed;
-    top: 50%;
-    left: 16px;
-    transform: translateY(-50%);
-    z-index: 999999;
-    background: #05d68a;
-    border: none;
-    border-radius: 50%;
-    width: 46px;
-    height: 46px;
-    cursor: pointer;
-    box-shadow: 0 4px 20px rgba(5,214,138,0.45);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    font-size: 20px;
-    line-height: 1;
-}
-#sidebar-toggle-btn:hover {
-    background: #04c07c;
-    box-shadow: 0 6px 28px rgba(5,214,138,0.65);
-    transform: translateY(-50%) scale(1.1);
-}
-</style>
 
-<button id="sidebar-toggle-btn" title="Toggle sidebar" onclick="toggleSidebar()">☰</button>
-
-<script>
-function toggleSidebar() {
-    // Find Streamlit's sidebar element
-    const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-    const btn = window.parent.document.getElementById('sidebar-toggle-btn');
-    
-    if (!sidebar) return;
-    
-    const isCollapsed = sidebar.getAttribute('aria-expanded') === 'false' 
-                     || sidebar.style.transform === 'translateX(-100%)'
-                     || sidebar.classList.contains('st-emotion-cache-hidden');
-
-    // Find and click Streamlit's own collapse/expand button
-    const collapseBtn = window.parent.document.querySelector('[data-testid="collapsedControl"]') 
-                     || window.parent.document.querySelector('[data-testid="stSidebarCollapsedControl"]')
-                     || window.parent.document.querySelector('button[aria-label="Close sidebar"]')
-                     || window.parent.document.querySelector('button[aria-label="Open sidebar"]');
-    
-    if (collapseBtn) {
-        collapseBtn.click();
-    } else {
-        // Fallback: manually toggle visibility
-        if (sidebar.style.display === 'none' || sidebar.style.width === '0px') {
-            sidebar.style.display = 'block';
-            sidebar.style.width = '';
-        } else {
-            sidebar.style.display = 'none';
-        }
-    }
-}
-
-// Update button icon based on sidebar state
-function updateBtn() {
-    const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-    const btn = window.parent.document.getElementById('sidebar-toggle-btn');
-    if (!sidebar || !btn) return;
-    const rect = sidebar.getBoundingClientRect();
-    btn.innerHTML = rect.width > 50 ? '✕' : '☰';
-}
-
-// Watch for sidebar changes
-const observer = new MutationObserver(updateBtn);
-const target = window.parent.document.querySelector('[data-testid="stSidebar"]');
-if (target) observer.observe(target, { attributes: true, childList: true, subtree: true });
-setInterval(updateBtn, 500);
-</script>
-""", unsafe_allow_html=True)
 
 
 # ─────────────────────────────────────────────
@@ -468,7 +407,8 @@ def init():
         "chat": [], "result": None, "last_time": None,
         "history": [],
         "alerts": [], "alert_triggered": [], "user_email": "",
-        "auto_refresh": False, "refresh_interval": 30, "prev_rate": None
+        "auto_refresh": False, "refresh_interval": 30, "prev_rate": None,
+        "sidebar_open": True
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -493,6 +433,23 @@ except Exception:
 if not GEMINI_KEY:
     st.error("⚠️ Gemini API key not configured. Please contact the app administrator.")
     st.stop()
+
+# ── SIDEBAR VISIBILITY BASED ON TOGGLE STATE ──
+if not st.session_state.get("sidebar_open", True):
+    st.markdown("""
+    <style>
+    section[data-testid="stSidebar"] {
+        display: none !important;
+        width: 0px !important;
+        min-width: 0px !important;
+    }
+    .block-container {
+        padding-left: 1rem !important;
+        margin-left: 0 !important;
+        max-width: 100% !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 
@@ -1208,6 +1165,17 @@ def score_bar(label, score, color):
         <div class="prog-fill" style="width:{norm}%;background:{color};"></div>
       </div>
     </div>""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# ── TOGGLE BUTTON (top of main page) ──
+# ─────────────────────────────────────────────
+toggle_col, _ = st.columns([1, 11])
+with toggle_col:
+    icon = "✕" if st.session_state.sidebar_open else "☰"
+    if st.button(icon, key="sidebar_toggle", help="Open / close menu"):
+        st.session_state.sidebar_open = not st.session_state.sidebar_open
+        st.rerun()
 
 
 # ─────────────────────────────────────────────
