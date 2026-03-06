@@ -346,8 +346,8 @@ try:
     GEMINI_KEY = st.secrets["GEMINI_KEY"]
     NEWS_KEY = st.secrets["NEWS_KEY"]
 except Exception:
-    GEMINI_KEY = "AIzaSyDap6R0Ix2FjZk8yRHCWTAsSzP8XTpQOpc"
-    NEWS_KEY = "3be3acf95fc94341bc14d64c0582dadb"
+    GEMINI_KEY = ""
+    NEWS_KEY = ""
 
 
 
