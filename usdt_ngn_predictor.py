@@ -1748,7 +1748,7 @@ if st.session_state.result:
                 st.session_state.chat.append({"r": "a", "c": reply})
                 st.rerun()
             elif question and not GEMINI_KEY:
-                st.warning("Add your Gemini API key in the sidebar first.")
+                st.warning("Gemini API key not configured. Please add it to your Streamlit secrets.")
 
             if st.session_state.chat:
                 if st.button("🗑 Clear Chat"):
