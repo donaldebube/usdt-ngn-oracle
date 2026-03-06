@@ -332,7 +332,7 @@ def init():
     for k, v in {
         "chat": [], "result": None, "last_time": None,
         "history": [],
-        "alerts": [], "alert_triggered": []
+        "alerts": [], "alert_triggered": [], "tg_bot_token": "", "tg_chat_id": ""
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -340,14 +340,23 @@ def init():
 init()
 
 # ─────────────────────────────────────────────
-# API KEYS — loaded from Streamlit Secrets
+# API KEYS — loaded exclusively from Streamlit Secrets
 # ─────────────────────────────────────────────
+# ⚠️ No keys are hardcoded here for security.
+# Add your keys in: Streamlit Cloud → App Settings → Secrets
+# Format:
+#   GEMINI_KEY = "your-gemini-key"
+#   NEWS_KEY = "your-newsapi-key"
 try:
     GEMINI_KEY = st.secrets["GEMINI_KEY"]
-    NEWS_KEY = st.secrets["NEWS_KEY"]
+    NEWS_KEY = st.secrets.get("NEWS_KEY", "")
 except Exception:
-    GEMINI_KEY = "AIzaSyDap6R0Ix2FjZk8yRHCWTAsSzP8XTpQOpc"
-    NEWS_KEY = "3be3acf95fc94341bc14d64c0582dadb"
+    GEMINI_KEY = ""
+    NEWS_KEY = ""
+
+if not GEMINI_KEY:
+    st.error("⚠️ Gemini API key not configured. Please contact the app administrator.")
+    st.stop()
 
 
 
@@ -913,15 +922,62 @@ If asked about the rate, give the number. If asked for advice, give it clearly w
 # ─────────────────────────────────────────────
 # CHECK ALERTS
 # ─────────────────────────────────────────────
-def check_alerts(rate: float):
+def send_telegram(bot_token: str, chat_id: str, message: str) -> bool:
+    """Send a Telegram message via bot."""
+    if not bot_token or not chat_id:
+        return False
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        payload = {
+            "chat_id": chat_id,
+            "text": message,
+            "parse_mode": "HTML"
+        }
+        r = requests.post(url, json=payload, timeout=10)
+        return r.status_code == 200
+    except:
+        return False
+
+
+def check_alerts(rate: float, prediction: dict = {}):
+    """Check alerts and send Telegram notifications if triggered."""
     triggered = []
+    bot_token = st.session_state.get("tg_bot_token", "")
+    chat_id = st.session_state.get("tg_chat_id", "")
+
     for i, a in enumerate(st.session_state.alerts):
+        msg = ""
+        direction = prediction.get("prediction_direction", "N/A")
+        confidence = prediction.get("confidence_score", 0)
+        pred_low = prediction.get("predicted_low", 0)
+        pred_high = prediction.get("predicted_high", 0)
+        recommendation = prediction.get("trade_recommendation", "")
+
         if a["type"] == "above" and rate >= a["level"] and i not in st.session_state.alert_triggered:
-            triggered.append((i, f"🔔 Rate crossed ABOVE ₦{a['level']:,} — now at ₦{rate:,.0f}"))
+            msg = f"🔔 Rate crossed ABOVE ₦{a['level']:,} — now at ₦{rate:,.0f}"
+            triggered.append((i, msg))
             st.session_state.alert_triggered.append(i)
+
         elif a["type"] == "below" and rate <= a["level"] and i not in st.session_state.alert_triggered:
-            triggered.append((i, f"🔔 Rate dropped BELOW ₦{a['level']:,} — now at ₦{rate:,.0f}"))
+            msg = f"🔔 Rate dropped BELOW ₦{a['level']:,} — now at ₦{rate:,.0f}"
+            triggered.append((i, msg))
             st.session_state.alert_triggered.append(i)
+
+        if msg and bot_token and chat_id:
+            parts = [
+                "<b>\U0001f1f3\U0001f1ec USDT/NGN Oracle Alert</b>",
+                "\u2501" * 15,
+                "<b>\u26a1 " + msg + "</b>",
+                "\U0001f4ca <b>AI Prediction:</b> " + str(direction),
+                "\U0001f3af <b>Range:</b> \u20a6" + f"{pred_low:,.0f}" + " - \u20a6" + f"{pred_high:,.0f}",
+                "\U0001f4a1 <b>Confidence:</b> " + str(confidence) + "%",
+                "\U0001f4dd <b>Recommendation:</b>\n" + str(recommendation),
+                "\u2501" * 15,
+                "<i>USDT/NGN Oracle - Not financial advice</i>",
+            ]
+            tg_message = "\n\n".join(parts)
+            send_telegram(bot_token, chat_id, tg_message)
+
     return triggered
 
 
@@ -966,7 +1022,46 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # Price Alerts
+    # ── TELEGRAM SETUP ──
+    st.markdown('''<div style="background:var(--bg3);border:1px solid var(--border2);
+    border-radius:10px;padding:14px;margin-bottom:14px;">
+    <p style="font-size:11px;color:var(--blue);letter-spacing:1px;margin:0 0 10px;
+    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;">
+    📲 Telegram Alerts</p>''', unsafe_allow_html=True)
+
+    tg_token = st.text_input(
+        "Bot Token",
+        value=st.session_state.tg_bot_token,
+        placeholder="123456:ABC-DEF...",
+        type="password",
+        help="Get this from @BotFather on Telegram",
+        label_visibility="visible"
+    )
+    st.session_state.tg_bot_token = tg_token
+
+    tg_chat = st.text_input(
+        "Your Chat ID",
+        value=st.session_state.tg_chat_id,
+        placeholder="e.g. 123456789",
+        help="Get this from @userinfobot on Telegram",
+        label_visibility="visible"
+    )
+    st.session_state.tg_chat_id = tg_chat
+
+    if tg_token and tg_chat:
+        if st.button("🧪 Test Telegram", use_container_width=True):
+            ok = send_telegram(tg_token, tg_chat,
+                "✅ <b>USDT/NGN Oracle</b> — Telegram alerts are working! You will receive notifications here when your price alerts trigger.")
+            if ok:
+                st.success("✅ Test message sent!")
+            else:
+                st.error("❌ Failed — check your Bot Token and Chat ID")
+    else:
+        st.markdown('<p style="font-size:10px;color:var(--muted);margin-top:4px;line-height:1.6;">Enter your Bot Token + Chat ID above to receive Telegram notifications when your price alerts trigger. See setup guide below.</p>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── PRICE ALERTS ──
     st.markdown('<p style="font-size:11px;color:var(--muted2);letter-spacing:1px;margin-bottom:10px;">🔔 PRICE ALERTS</p>', unsafe_allow_html=True)
     a_level = st.number_input("Alert price (₦)", min_value=100.0, max_value=9999.0,
                                value=1700.0, step=10.0, label_visibility="visible")
@@ -980,7 +1075,8 @@ with st.sidebar:
         for i, a in enumerate(st.session_state.alerts):
             col1, col2 = st.columns([3,1])
             with col1:
-                st.markdown(f'<span style="font-size:12px;color:var(--text);">{"▲" if a["type"]=="above" else "▼"} ₦{a["level"]:,}</span>', unsafe_allow_html=True)
+                tg_icon = "📲" if tg_token and tg_chat else "🔕"
+                st.markdown(f'<span style="font-size:12px;color:var(--text);">{tg_icon} {"▲" if a["type"]=="above" else "▼"} ₦{a["level"]:,}</span>', unsafe_allow_html=True)
             with col2:
                 if st.button("✕", key=f"del_{i}"):
                     st.session_state.alerts.pop(i)
@@ -996,6 +1092,34 @@ with st.sidebar:
     padding-top:14px;border-top:1px solid var(--border);">
     ⚠️ Not financial advice. AI predictions carry uncertainty. Always DYOR before converting.
     </div>""", unsafe_allow_html=True)
+
+    # Telegram setup guide
+    with st.expander("📲 How to set up Telegram Alerts"):
+        st.markdown("""
+**Step 1 — Create your Telegram Bot (free)**
+1. Open Telegram and search for **@BotFather**
+2. Send the message: `/newbot`
+3. Give your bot a name e.g. *USDT NGN Oracle*
+4. Give it a username e.g. *usdtngn_oracle_bot*
+5. BotFather will give you a **Bot Token** — copy it
+
+**Step 2 — Get your Chat ID**
+1. Search for **@userinfobot** on Telegram
+2. Send it any message
+3. It will reply with your **Chat ID** — copy the number
+
+**Step 3 — Enter both in the sidebar**
+1. Paste your **Bot Token** in the sidebar
+2. Paste your **Chat ID** in the sidebar
+3. Click **Test Telegram** to confirm it's working
+
+**Step 4 — Set your price alert**
+1. Enter the rate level you want to be alerted at
+2. Choose *above* or *below*
+3. Click **+ Add Alert**
+
+Now every time you click **Run Full Analysis** and the rate crosses your target, you'll get an instant Telegram message with the rate, AI prediction, and recommendation! 🎉
+        """)
 
 
 # ─────────────────────────────────────────────
@@ -1049,7 +1173,7 @@ if st.session_state.result:
 
     # ── ALERT BANNERS ──
     if rd.get("primary"):
-        triggered = check_alerts(rd["primary"])
+        triggered = check_alerts(rd["primary"], p)
         for _, msg in triggered:
             st.markdown(f'<div class="alert-box alert-warn">{msg}</div>', unsafe_allow_html=True)
 
@@ -1395,39 +1519,79 @@ if st.session_state.result:
 # ── EMPTY STATE ──
 else:
     st.markdown("""
-    <div style="text-align:center;padding:70px 20px 40px;">
-      <div style="font-size:60px;margin-bottom:16px;opacity:0.15;font-family:'IBM Plex Mono',monospace;">₦</div>
-      <h2 style="font-family:'IBM Plex Mono',monospace;color:#243550;font-size:20px;margin-bottom:10px;">Ready to Analyze</h2>
-      <p style="color:#2d4a6a;max-width:520px;margin:0 auto 28px;line-height:1.7;font-size:14px;">
-        Add your <strong style="color:var(--blue);">Gemini API key</strong> in the sidebar and click
-        <strong style="color:var(--blue);">Run Full Analysis</strong>. The Oracle will fetch the
-        black market P2P rate, scan global signals — oil, USD, crypto, CBN, politics —
-        and give you an AI-powered 24-hour prediction with confidence scoring.
+    <div style="text-align:center;padding:60px 20px 40px;">
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--blue);
+      letter-spacing:3px;text-transform:uppercase;margin-bottom:16px;">
+        <span class="live-dot"></span>NIGERIA FX INTELLIGENCE
+      </div>
+
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:42px;font-weight:700;
+      background:linear-gradient(135deg,#dce8f8,#4f8ef7);-webkit-background-clip:text;
+      -webkit-text-fill-color:transparent;margin-bottom:8px;line-height:1.1;">
+        USDT / NGN Oracle
+      </div>
+
+      <p style="color:var(--muted2);max-width:560px;margin:0 auto 12px;
+      line-height:1.8;font-size:15px;">
+        Your real-time AI-powered edge on the Nigerian USDT market.
+        Live black market & P2P rates, global macro signals, and
+        Gemini AI predictions — all in one place.
       </p>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:600px;margin:0 auto;">
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 12px;">
-          <div style="font-size:26px;margin-bottom:8px;">🖤</div>
-          <div style="font-size:12px;color:var(--muted2);">Black Market Rate</div>
+
+      <p style="color:var(--muted);max-width:480px;margin:0 auto 36px;
+      font-size:13px;line-height:1.7;">
+        Click <strong style="color:var(--green);">Run Full Analysis</strong> in the sidebar
+        to get your latest 24-hour prediction, confidence score, and trade recommendation.
+      </p>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;
+      max-width:640px;margin:0 auto 40px;">
+        <div style="background:var(--card);border:1px solid var(--border);
+        border-radius:14px;padding:22px 14px;border-top:2px solid var(--green);">
+          <div style="font-size:28px;margin-bottom:8px;">📡</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">Live P2P Rates</div>
+          <div style="font-size:11px;color:var(--muted);">Binance P2P · Bybit · CoinGecko</div>
         </div>
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 12px;">
-          <div style="font-size:26px;margin-bottom:8px;">🌍</div>
-          <div style="font-size:12px;color:var(--muted2);">Global Signals</div>
+        <div style="background:var(--card);border:1px solid var(--border);
+        border-radius:14px;padding:22px 14px;border-top:2px solid var(--blue);">
+          <div style="font-size:28px;margin-bottom:8px;">🌍</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">Global Signals</div>
+          <div style="font-size:11px;color:var(--muted);">Oil · USD · CBN · Crypto · Politics</div>
         </div>
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 12px;">
-          <div style="font-size:26px;margin-bottom:8px;">💱</div>
-          <div style="font-size:12px;color:var(--muted2);">Smart Converter</div>
+        <div style="background:var(--card);border:1px solid var(--border);
+        border-radius:14px;padding:22px 14px;border-top:2px solid var(--purple);">
+          <div style="font-size:28px;margin-bottom:8px;">🤖</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">AI Prediction</div>
+          <div style="font-size:11px;color:var(--muted);">Gemini 2.5 · 24H forecast · Confidence score</div>
         </div>
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 12px;">
-          <div style="font-size:26px;margin-bottom:8px;">🔔</div>
-          <div style="font-size:12px;color:var(--muted2);">Price Alerts</div>
+        <div style="background:var(--card);border:1px solid var(--border);
+        border-radius:14px;padding:22px 14px;border-top:2px solid var(--amber);">
+          <div style="font-size:28px;margin-bottom:8px;">💱</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">Smart Converter</div>
+          <div style="font-size:11px;color:var(--muted);">USDT ↔ NGN · Compare all rates</div>
         </div>
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 12px;">
-          <div style="font-size:26px;margin-bottom:8px;">📈</div>
-          <div style="font-size:12px;color:var(--muted2);">History Log</div>
+        <div style="background:var(--card);border:1px solid var(--border);
+        border-radius:14px;padding:22px 14px;border-top:2px solid var(--red);">
+          <div style="font-size:28px;margin-bottom:8px;">🔔</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">Price Alerts</div>
+          <div style="font-size:11px;color:var(--muted);">Get notified when rate hits your target</div>
         </div>
-        <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 12px;">
-          <div style="font-size:26px;margin-bottom:8px;">💬</div>
-          <div style="font-size:12px;color:var(--muted2);">AI Chat Oracle</div>
+        <div style="background:var(--card);border:1px solid var(--border);
+        border-radius:14px;padding:22px 14px;border-top:2px solid var(--green);">
+          <div style="font-size:28px;margin-bottom:8px;">💬</div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px;">Ask the Oracle</div>
+          <div style="font-size:11px;color:var(--muted);">Chat with AI about the market anytime</div>
         </div>
       </div>
+
+      <div style="background:var(--card);border:1px solid var(--border2);border-radius:12px;
+      padding:16px 24px;max-width:480px;margin:0 auto;display:flex;align-items:center;gap:12px;">
+        <div style="font-size:22px;">⚠️</div>
+        <div style="font-size:11px;color:var(--muted);text-align:left;line-height:1.6;">
+          For informational purposes only. AI predictions carry uncertainty.
+          Always do your own research before converting funds.
+        </div>
+      </div>
+
     </div>""", unsafe_allow_html=True)
