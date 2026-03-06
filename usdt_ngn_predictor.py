@@ -332,7 +332,8 @@ def init():
     for k, v in {
         "chat": [], "result": None, "last_time": None,
         "history": [],
-        "alerts": [], "alert_triggered": [], "user_email": ""
+        "alerts": [], "alert_triggered": [], "user_email": "",
+        "auto_refresh": False, "refresh_interval": 30, "prev_rate": None
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -1098,6 +1099,22 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # ── AUTO REFRESH ──
+    st.markdown('<p style="font-size:11px;color:var(--muted2);letter-spacing:1px;margin-bottom:8px;">⏱ AUTO-REFRESH</p>', unsafe_allow_html=True)
+    auto_refresh = st.toggle("Auto-refresh analysis", value=st.session_state.auto_refresh)
+    st.session_state.auto_refresh = auto_refresh
+    if auto_refresh:
+        refresh_interval = st.select_slider(
+            "Refresh every",
+            options=[15, 30, 60, 120, 180],
+            value=st.session_state.refresh_interval,
+            format_func=lambda x: f"{x} min"
+        )
+        st.session_state.refresh_interval = refresh_interval
+        st.caption(f"Auto-refreshing every {refresh_interval} min")
+
+    st.markdown("---")
+
     # ── EMAIL ALERTS ──
     st.markdown(
         '<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:14px;margin-bottom:14px;">'
@@ -1191,6 +1208,9 @@ if run_btn:
         result = run_analysis(GEMINI_KEY, NEWS_KEY, rates)
         result["rate_data"] = rates
         st.session_state.result = result
+        # Save previous rate for change tracking
+        if st.session_state.result and st.session_state.result.get("fetch_success"):
+            st.session_state.prev_rate = st.session_state.result.get("black_market_rate", None)
         st.session_state.last_time = datetime.datetime.now()
         if result.get("fetch_success"):
             st.session_state.history.append({
@@ -1198,9 +1218,47 @@ if run_btn:
                 "date": datetime.datetime.now().strftime("%d/%m"),
                 "rate": rates.get("primary", 0),
                 "dir": result.get("prediction_direction", "N/A"),
-                "conf": result.get("confidence_score", 0)
+                "conf": result.get("confidence_score", 0),
+                "p2p_buy": rates.get("p2p_buy", 0),
+                "p2p_sell": rates.get("p2p_sell", 0),
             })
     st.rerun()
+
+# ── AUTO REFRESH TRIGGER ──
+if st.session_state.auto_refresh and st.session_state.last_time and GEMINI_KEY:
+    elapsed_sec = (datetime.datetime.now() - st.session_state.last_time).total_seconds()
+    interval_sec = st.session_state.refresh_interval * 60
+    if elapsed_sec >= interval_sec:
+        with st.spinner(f"Auto-refreshing... (every {st.session_state.refresh_interval} min)"):
+            rates = fetch_rates()
+            if st.session_state.result and st.session_state.result.get("fetch_success"):
+                st.session_state.prev_rate = st.session_state.result.get("black_market_rate", None)
+            result = run_analysis(GEMINI_KEY, NEWS_KEY, rates)
+            result["rate_data"] = rates
+            st.session_state.result = result
+            st.session_state.last_time = datetime.datetime.now()
+            if result.get("fetch_success"):
+                st.session_state.history.append({
+                    "time": datetime.datetime.now().strftime("%H:%M"),
+                    "date": datetime.datetime.now().strftime("%d/%m"),
+                    "rate": rates.get("primary", 0),
+                    "dir": result.get("prediction_direction", "N/A"),
+                    "conf": result.get("confidence_score", 0),
+                    "p2p_buy": rates.get("p2p_buy", 0),
+                    "p2p_sell": rates.get("p2p_sell", 0),
+                })
+        st.rerun()
+    else:
+        # Show countdown to next refresh
+        remaining = int((interval_sec - elapsed_sec) // 60)
+        secs = int((interval_sec - elapsed_sec) % 60)
+        st.sidebar.markdown(
+            f'<p style="font-size:10px;color:var(--green);">🔄 Next refresh in {remaining}m {secs}s</p>',
+            unsafe_allow_html=True
+        )
+        import time
+        time.sleep(30)
+        st.rerun()
 
 
 # ─────────────────────────────────────────────
@@ -1270,10 +1328,20 @@ if st.session_state.result:
             p2p_buy = rd.get("p2p_buy")
             p2p_sell = rd.get("p2p_sell")
             p2p_detail = f"Buy ₦{p2p_buy:,.0f} · Sell ₦{p2p_sell:,.0f}" if p2p_buy and p2p_sell else rd.get("black_market_source","P2P")
+            prev = st.session_state.prev_rate
+            if prev and prev > 0:
+                chg = bm_rate - prev
+                chg_pct = (chg / prev) * 100
+                chg_color = "var(--green)" if chg >= 0 else "var(--red)"
+                chg_arrow = "▲" if chg >= 0 else "▼"
+                chg_str = f'<span style="color:{chg_color};font-size:12px;">{chg_arrow} ₦{abs(chg):,.1f} ({chg_pct:+.2f}%) since last run</span>'
+            else:
+                chg_str = '<span style="font-size:11px;color:var(--muted);">First analysis run</span>'
             st.markdown(f"""<div class="mcard mcard-green">
             <div class="mcard-label">Black Market Rate (P2P)</div>
             <div class="mcard-value" style="color:var(--green);">₦{bm_rate:,.0f}</div>
             <div class="mcard-sub" style="font-size:11px;">{p2p_detail}</div>
+            <div style="margin-top:6px;">{chg_str}</div>
             </div>""", unsafe_allow_html=True)
         with c2:
             st.markdown(f"""<div class="mcard mcard-blue">
@@ -1502,19 +1570,173 @@ if st.session_state.result:
                 st.markdown("""
                 <div class="ocard" style="text-align:center;padding:40px;">
                   <div style="font-size:32px;margin-bottom:12px;opacity:0.3;">📈</div>
-                  <p style="color:var(--muted2);">Run analysis multiple times to build a history log.<br>Each run is tracked here with rate, direction, and confidence.</p>
+                  <p style="color:var(--muted2);">Run analysis at least twice to build your rate history chart.<br>
+                  Each run is tracked and plotted automatically.</p>
                 </div>""", unsafe_allow_html=True)
             else:
-                st.markdown('<div class="ocard"><div class="ocard-title">Analysis History Log</div>', unsafe_allow_html=True)
+                import json as _json
+
+                # ── RATE HISTORY CHART (pure HTML/JS with Chart.js) ──
+                labels = [f"{h['date']} {h['time']}" for h in hist]
+                rates_data = [h["rate"] for h in hist]
+                buy_data = [h.get("p2p_buy", 0) for h in hist]
+                sell_data = [h.get("p2p_sell", 0) for h in hist]
+
+                chart_html = f"""
+                <div class="ocard">
+                  <div class="ocard-title">Rate History Chart</div>
+                  <canvas id="rateChart" style="max-height:300px;"></canvas>
+                </div>
+                <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+                <script>
+                  const ctx = document.getElementById('rateChart').getContext('2d');
+                  new Chart(ctx, {{
+                    type: 'line',
+                    data: {{
+                      labels: {_json.dumps(labels)},
+                      datasets: [
+                        {{
+                          label: 'Black Market Rate',
+                          data: {_json.dumps(rates_data)},
+                          borderColor: '#05d68a',
+                          backgroundColor: 'rgba(5,214,138,0.08)',
+                          borderWidth: 2,
+                          pointRadius: 4,
+                          pointBackgroundColor: '#05d68a',
+                          tension: 0.3,
+                          fill: true
+                        }},
+                        {{
+                          label: 'P2P Buy Price',
+                          data: {_json.dumps(buy_data)},
+                          borderColor: '#4f8ef7',
+                          backgroundColor: 'transparent',
+                          borderWidth: 1.5,
+                          borderDash: [5,3],
+                          pointRadius: 2,
+                          tension: 0.3
+                        }},
+                        {{
+                          label: 'P2P Sell Price',
+                          data: {_json.dumps(sell_data)},
+                          borderColor: '#f0455a',
+                          backgroundColor: 'transparent',
+                          borderWidth: 1.5,
+                          borderDash: [5,3],
+                          pointRadius: 2,
+                          tension: 0.3
+                        }}
+                      ]
+                    }},
+                    options: {{
+                      responsive: true,
+                      plugins: {{
+                        legend: {{
+                          labels: {{ color: '#6b84a0', font: {{ size: 11 }} }}
+                        }},
+                        tooltip: {{
+                          backgroundColor: '#111d2e',
+                          titleColor: '#dce8f8',
+                          bodyColor: '#6b84a0',
+                          borderColor: '#1a2942',
+                          borderWidth: 1,
+                          callbacks: {{
+                            label: function(ctx) {{
+                              return ctx.dataset.label + ': ₦' + ctx.parsed.y.toLocaleString();
+                            }}
+                          }}
+                        }}
+                      }},
+                      scales: {{
+                        x: {{
+                          ticks: {{ color: '#4a6080', font: {{ size: 10 }} }},
+                          grid: {{ color: '#1a2942' }}
+                        }},
+                        y: {{
+                          ticks: {{
+                            color: '#4a6080',
+                            font: {{ size: 10 }},
+                            callback: function(v) {{ return '₦' + v.toLocaleString(); }}
+                          }},
+                          grid: {{ color: '#1a2942' }}
+                        }}
+                      }}
+                    }}
+                  }});
+                </script>
+                """
+                st.components.v1.html(chart_html, height=360)
+
+                # ── P2P SPREAD CHART ──
+                spread_data = []
+                for h in hist:
+                    buy = h.get("p2p_buy", 0)
+                    sell = h.get("p2p_sell", 0)
+                    spread_data.append(round(buy - sell, 2) if buy and sell else 0)
+
+                if any(s > 0 for s in spread_data):
+                    spread_html = f"""
+                    <div class="ocard" style="margin-top:16px;">
+                      <div class="ocard-title">Binance P2P Spread History (Buy − Sell)</div>
+                      <canvas id="spreadChart" style="max-height:180px;"></canvas>
+                    </div>
+                    <script>
+                      const ctx2 = document.getElementById('spreadChart').getContext('2d');
+                      new Chart(ctx2, {{
+                        type: 'bar',
+                        data: {{
+                          labels: {_json.dumps(labels)},
+                          datasets: [{{
+                            label: 'P2P Spread (₦)',
+                            data: {_json.dumps(spread_data)},
+                            backgroundColor: 'rgba(245,166,35,0.3)',
+                            borderColor: '#f5a623',
+                            borderWidth: 1,
+                            borderRadius: 4
+                          }}]
+                        }},
+                        options: {{
+                          responsive: true,
+                          plugins: {{
+                            legend: {{ labels: {{ color: '#6b84a0', font: {{ size: 11 }} }} }},
+                            tooltip: {{
+                              backgroundColor: '#111d2e',
+                              titleColor: '#dce8f8',
+                              bodyColor: '#6b84a0',
+                              callbacks: {{
+                                label: function(ctx) {{
+                                  return 'Spread: ₦' + ctx.parsed.y.toLocaleString();
+                                }}
+                              }}
+                            }}
+                          }},
+                          scales: {{
+                            x: {{ ticks: {{ color: '#4a6080', font: {{ size: 10 }} }}, grid: {{ color: '#1a2942' }} }},
+                            y: {{ ticks: {{ color: '#4a6080', font: {{ size: 10 }}, callback: function(v) {{ return '₦' + v; }} }}, grid: {{ color: '#1a2942' }} }}
+                          }}
+                        }}
+                      }});
+                    </script>
+                    """
+                    st.components.v1.html(spread_html, height=240)
+
+                # ── HISTORY TABLE ──
+                st.markdown('<div class="ocard"><div class="ocard-title">Full History Log</div>', unsafe_allow_html=True)
                 st.markdown("""<table class="spread-table">
-                <tr><th>Date</th><th>Time</th><th>Black Market Rate</th><th>Direction</th><th>Confidence</th></tr>""", unsafe_allow_html=True)
+                <tr><th>Date</th><th>Time</th><th>Rate</th><th>P2P Buy</th><th>P2P Sell</th><th>Spread</th><th>Direction</th><th>Confidence</th></tr>""", unsafe_allow_html=True)
                 for h in reversed(hist):
                     dc = "var(--green)" if h["dir"]=="BULLISH" else "var(--red)" if h["dir"]=="BEARISH" else "var(--amber)"
                     da = "▲" if h["dir"]=="BULLISH" else "▼" if h["dir"]=="BEARISH" else "◆"
+                    buy = h.get("p2p_buy", 0)
+                    sell = h.get("p2p_sell", 0)
+                    sprd = f"₦{buy-sell:,.0f}" if buy and sell else "—"
                     st.markdown(f"""<tr>
                     <td style="color:var(--muted2);">{h['date']}</td>
                     <td style="font-family:'IBM Plex Mono',monospace;">{h['time']}</td>
                     <td style="font-family:'IBM Plex Mono',monospace;color:var(--green);">₦{h['rate']:,.0f}</td>
+                    <td style="font-family:'IBM Plex Mono',monospace;color:var(--blue);">{f"₦{buy:,.0f}" if buy else "—"}</td>
+                    <td style="font-family:'IBM Plex Mono',monospace;color:var(--red);">{f"₦{sell:,.0f}" if sell else "—"}</td>
+                    <td style="font-family:'IBM Plex Mono',monospace;color:var(--amber);">{sprd}</td>
                     <td style="color:{dc};font-weight:600;">{da} {h['dir']}</td>
                     <td style="font-family:'IBM Plex Mono',monospace;color:var(--amber);">{h['conf']}%</td>
                     </tr>""", unsafe_allow_html=True)
