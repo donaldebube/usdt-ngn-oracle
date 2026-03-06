@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="USDT/NGN Oracle",
     page_icon="₦",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # ─────────────────────────────────────────────
@@ -361,46 +361,7 @@ h1,h2,h3 { font-family: 'IBM Plex Mono', monospace !important; }
     .ocard { overflow-x: auto !important; }
 }
 
-/* ── SIDEBAR TOGGLE BUTTON — always visible ── */
-/* Target all known Streamlit sidebar toggle selectors */
-[data-testid="collapsedControl"],
-button[kind="header"],
-.st-emotion-cache-1dp5vir,
-[data-testid="stSidebarCollapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-    background: var(--green) !important;
-    border-radius: 50% !important;
-    width: 44px !important;
-    height: 44px !important;
-    align-items: center !important;
-    justify-content: center !important;
-    box-shadow: 0 4px 20px rgba(5,214,138,0.35) !important;
-    position: fixed !important;
-    top: 50% !important;
-    left: 16px !important;
-    transform: translateY(-50%) !important;
-    z-index: 99999 !important;
-    border: none !important;
-    cursor: pointer !important;
-    transition: all 0.2s !important;
-}
-
-[data-testid="collapsedControl"]:hover,
-[data-testid="stSidebarCollapsedControl"]:hover {
-    background: #04c07c !important;
-    box-shadow: 0 6px 28px rgba(5,214,138,0.55) !important;
-    transform: translateY(-50%) scale(1.08) !important;
-}
-
-[data-testid="collapsedControl"] svg,
-[data-testid="stSidebarCollapsedControl"] svg {
-    fill: #080c14 !important;
-    color: #080c14 !important;
-    width: 20px !important;
-    height: 20px !important;
-}
+/* sidebar toggle handled by custom JS button */
 
 /* Make sidebar overlay the content on mobile instead of pushing it */
 @media (max-width: 768px) {
@@ -413,6 +374,89 @@ button[kind="header"],
     }
 }
 </style>
+""", unsafe_allow_html=True)
+
+
+# ─────────────────────────────────────────────
+# SIDEBAR TOGGLE BUTTON (custom JS — works on all screen sizes)
+# ─────────────────────────────────────────────
+st.markdown("""
+<style>
+#sidebar-toggle-btn {
+    position: fixed;
+    top: 50%;
+    left: 16px;
+    transform: translateY(-50%);
+    z-index: 999999;
+    background: #05d68a;
+    border: none;
+    border-radius: 50%;
+    width: 46px;
+    height: 46px;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(5,214,138,0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    font-size: 20px;
+    line-height: 1;
+}
+#sidebar-toggle-btn:hover {
+    background: #04c07c;
+    box-shadow: 0 6px 28px rgba(5,214,138,0.65);
+    transform: translateY(-50%) scale(1.1);
+}
+</style>
+
+<button id="sidebar-toggle-btn" title="Toggle sidebar" onclick="toggleSidebar()">☰</button>
+
+<script>
+function toggleSidebar() {
+    // Find Streamlit's sidebar element
+    const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+    const btn = window.parent.document.getElementById('sidebar-toggle-btn');
+    
+    if (!sidebar) return;
+    
+    const isCollapsed = sidebar.getAttribute('aria-expanded') === 'false' 
+                     || sidebar.style.transform === 'translateX(-100%)'
+                     || sidebar.classList.contains('st-emotion-cache-hidden');
+
+    // Find and click Streamlit's own collapse/expand button
+    const collapseBtn = window.parent.document.querySelector('[data-testid="collapsedControl"]') 
+                     || window.parent.document.querySelector('[data-testid="stSidebarCollapsedControl"]')
+                     || window.parent.document.querySelector('button[aria-label="Close sidebar"]')
+                     || window.parent.document.querySelector('button[aria-label="Open sidebar"]');
+    
+    if (collapseBtn) {
+        collapseBtn.click();
+    } else {
+        // Fallback: manually toggle visibility
+        if (sidebar.style.display === 'none' || sidebar.style.width === '0px') {
+            sidebar.style.display = 'block';
+            sidebar.style.width = '';
+        } else {
+            sidebar.style.display = 'none';
+        }
+    }
+}
+
+// Update button icon based on sidebar state
+function updateBtn() {
+    const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+    const btn = window.parent.document.getElementById('sidebar-toggle-btn');
+    if (!sidebar || !btn) return;
+    const rect = sidebar.getBoundingClientRect();
+    btn.innerHTML = rect.width > 50 ? '✕' : '☰';
+}
+
+// Watch for sidebar changes
+const observer = new MutationObserver(updateBtn);
+const target = window.parent.document.querySelector('[data-testid="stSidebar"]');
+if (target) observer.observe(target, { attributes: true, childList: true, subtree: true });
+setInterval(updateBtn, 500);
+</script>
 """, unsafe_allow_html=True)
 
 
