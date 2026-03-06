@@ -321,6 +321,81 @@ h1,h2,h3 { font-family: 'IBM Plex Mono', monospace !important; }
 #MainMenu, footer, header { visibility: hidden; }
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── MOBILE RESPONSIVE ── */
+@media (max-width: 768px) {
+
+    /* Tighten main content padding */
+    .block-container {
+        padding: 0.8rem 0.8rem 2rem 0.8rem !important;
+    }
+
+    /* Stack metric cards into 2 columns on mobile */
+    [data-testid="column"] {
+        min-width: 48% !important;
+        flex: 0 0 48% !important;
+    }
+
+    /* Shrink metric card text */
+    .mcard-value { font-size: 18px !important; }
+    .mcard-label { font-size: 9px !important; }
+    .mcard { padding: 14px 12px !important; }
+
+    /* Make tabs scrollable on small screens */
+    .stTabs [data-baseweb="tab-list"] {
+        overflow-x: auto !important;
+        flex-wrap: nowrap !important;
+        -webkit-overflow-scrolling: touch;
+    }
+    .stTabs [data-baseweb="tab"] {
+        white-space: nowrap !important;
+        font-size: 12px !important;
+        padding: 8px 12px !important;
+    }
+
+    /* Shrink hero title */
+    .hero-title { font-size: 28px !important; }
+
+    /* Make tables scrollable */
+    .spread-table { font-size: 11px !important; }
+    .ocard { overflow-x: auto !important; }
+}
+
+/* ── FLOATING SIDEBAR TOGGLE BUTTON (mobile only) ── */
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    background: var(--green) !important;
+    border-radius: 50% !important;
+    width: 48px !important;
+    height: 48px !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-shadow: 0 4px 20px rgba(5,214,138,0.4) !important;
+    position: fixed !important;
+    bottom: 24px !important;
+    left: 16px !important;
+    z-index: 9999 !important;
+    border: none !important;
+    cursor: pointer !important;
+}
+
+[data-testid="collapsedControl"] svg {
+    fill: #080c14 !important;
+    width: 20px !important;
+    height: 20px !important;
+}
+
+/* Make sidebar overlay the content on mobile instead of pushing it */
+@media (max-width: 768px) {
+    section[data-testid="stSidebar"] {
+        position: fixed !important;
+        z-index: 9998 !important;
+        height: 100vh !important;
+        overflow-y: auto !important;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.5) !important;
+    }
+}
 </style>
 """, unsafe_allow_html=True)
 
