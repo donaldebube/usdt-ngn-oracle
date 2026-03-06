@@ -396,74 +396,170 @@ def gemini(prompt: str, key: str, system: str = "") -> str:
 # FETCH BLACK MARKET + RATES
 # ─────────────────────────────────────────────
 def fetch_rates() -> dict:
-    """Fetch official, P2P/crypto, and estimate black market rate."""
+    """
+    Fetch USDT/NGN rates from multiple real sources:
+    1. Binance P2P — real live peer-to-peer USDT/NGN trades (TRUE black market)
+    2. Bybit P2P   — secondary P2P source
+    3. CoinGecko   — aggregated USDT/NGN fallback
+    4. OpenExchangeRates — official CBN/interbank USD/NGN rate
+    """
     result = {
-        "official": None, "coingecko": None, "black_market": None,
-        "source_official": "", "source_crypto": "",
+        "official": None,
+        "black_market": None,
+        "black_market_source": "",
+        "source_official": "",
+        "p2p_buy": None,   # what sellers are asking (you pay this to buy USDT)
+        "p2p_sell": None,  # what buyers are bidding (you get this when selling USDT)
+        "p2p_spread": None,
         "timestamp": datetime.datetime.now().isoformat(),
-        "status": "partial"
+        "status": "partial",
+        "all_sources": {}
     }
 
-    # 1. CoinGecko — USDT/NGN (closest to P2P / black market)
+    # ── SOURCE 1: BINANCE P2P (undocumented public endpoint — no key needed) ──
+    # This is the REAL rate Nigerians actually trade USDT at
     try:
-        r = requests.get(
-            "https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=ngn,usd",
-            timeout=10, headers={"User-Agent": "Mozilla/5.0"}
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }
+        # BUY side — what you pay per USDT when buying
+        buy_payload = {
+            "asset": "USDT",
+            "fiat": "NGN",
+            "merchantCheck": False,
+            "page": 1,
+            "payTypes": [],
+            "publisherType": None,
+            "rows": 5,
+            "tradeType": "BUY",  # BUY = sellers listing USDT — their ask price
+        }
+        r = requests.post(
+            "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search",
+            json=buy_payload,
+            headers=headers,
+            timeout=15
         )
         if r.status_code == 200:
-            d = r.json()
-            ngn = d.get("tether", {}).get("ngn")
-            if ngn and ngn > 0:
-                result["coingecko"] = float(ngn)
-                result["source_crypto"] = "CoinGecko (USDT/NGN)"
-    except: pass
+            data = r.json()
+            prices = []
+            for item in data.get("data", []):
+                price = float(item.get("adv", {}).get("price", 0))
+                if price > 0:
+                    prices.append(price)
+            if prices:
+                result["p2p_buy"] = round(sum(prices) / len(prices), 2)
+                result["all_sources"]["binance_p2p_buy"] = result["p2p_buy"]
 
-    # 2. Open Exchange Rates — official USD/NGN
+        # SELL side — what you receive per USDT when selling
+        sell_payload = {**buy_payload, "tradeType": "SELL"}
+        r2 = requests.post(
+            "https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search",
+            json=sell_payload,
+            headers=headers,
+            timeout=15
+        )
+        if r2.status_code == 200:
+            data2 = r2.json()
+            prices2 = []
+            for item in data2.get("data", []):
+                price = float(item.get("adv", {}).get("price", 0))
+                if price > 0:
+                    prices2.append(price)
+            if prices2:
+                result["p2p_sell"] = round(sum(prices2) / len(prices2), 2)
+                result["all_sources"]["binance_p2p_sell"] = result["p2p_sell"]
+
+        # Use midpoint of buy/sell as the true P2P black market rate
+        if result["p2p_buy"] and result["p2p_sell"]:
+            result["black_market"] = round((result["p2p_buy"] + result["p2p_sell"]) / 2, 2)
+            result["p2p_spread"] = round(result["p2p_buy"] - result["p2p_sell"], 2)
+            result["black_market_source"] = f"Binance P2P live (Buy: ₦{result['p2p_buy']:,.0f} | Sell: ₦{result['p2p_sell']:,.0f})"
+            result["status"] = "live"
+        elif result["p2p_buy"]:
+            result["black_market"] = result["p2p_buy"]
+            result["black_market_source"] = f"Binance P2P live (ask: ₦{result['p2p_buy']:,.0f})"
+            result["status"] = "live"
+    except Exception as e:
+        result["all_sources"]["binance_p2p_error"] = str(e)[:80]
+
+    # ── SOURCE 2: BYBIT P2P (fallback if Binance fails) ──
+    if not result["black_market"]:
+        try:
+            r = requests.get(
+                "https://api2.bybit.com/fiat/otc/item/list?userId=&tokenId=USDT&currencyId=NGN&payment=&side=1&size=5&page=1&amount=&authMaker=false&canTrade=false",
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=12
+            )
+            if r.status_code == 200:
+                items = r.json().get("result", {}).get("items", [])
+                prices = [float(i.get("price", 0)) for i in items if float(i.get("price", 0)) > 0]
+                if prices:
+                    result["black_market"] = round(sum(prices) / len(prices), 2)
+                    result["black_market_source"] = "Bybit P2P live"
+                    result["status"] = "live"
+                    result["all_sources"]["bybit_p2p"] = result["black_market"]
+        except Exception as e:
+            result["all_sources"]["bybit_p2p_error"] = str(e)[:80]
+
+    # ── SOURCE 3: COINGECKO USDT/NGN (second fallback) ──
+    if not result["black_market"]:
+        try:
+            r = requests.get(
+                "https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=ngn",
+                timeout=10,
+                headers={"User-Agent": "Mozilla/5.0"}
+            )
+            if r.status_code == 200:
+                ngn = r.json().get("tether", {}).get("ngn")
+                if ngn and float(ngn) > 0:
+                    result["black_market"] = float(ngn)
+                    result["black_market_source"] = "CoinGecko USDT/NGN (aggregated)"
+                    result["status"] = "live"
+                    result["all_sources"]["coingecko"] = result["black_market"]
+        except: pass
+
+    # ── SOURCE 4: OFFICIAL CBN/INTERBANK RATE ──
     try:
         r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=10)
         if r.status_code == 200:
             ngn = r.json().get("rates", {}).get("NGN")
             if ngn:
                 result["official"] = float(ngn)
-                result["source_official"] = "OpenExchangeRates (official USD/NGN)"
+                result["source_official"] = "OpenExchangeRates (interbank)"
+                result["all_sources"]["official_rate"] = result["official"]
     except: pass
 
-    # 3. Fallback official
+    # Fallback official rate source
     if not result["official"]:
         try:
-            r = requests.get(
-                "https://api.exchangerate-api.com/v4/latest/USD",
-                timeout=10
-            )
+            r = requests.get("https://api.exchangerate-api.com/v4/latest/USD", timeout=10)
             if r.status_code == 200:
                 ngn = r.json().get("rates", {}).get("NGN")
                 if ngn:
                     result["official"] = float(ngn)
-                    result["source_official"] = "ExchangeRateAPI"
+                    result["source_official"] = "ExchangeRateAPI (interbank)"
         except: pass
 
-    # 4. Derive black market estimate
-    # Nigerian black market typically trades 5–20% above official
-    # P2P crypto (CoinGecko) is the best proxy for street rate
-    if result["coingecko"]:
-        result["black_market"] = result["coingecko"]
-        result["black_market_source"] = "CoinGecko USDT/NGN (P2P proxy)"
-    elif result["official"]:
-        # estimate black market as ~8% above official
-        result["black_market"] = round(result["official"] * 1.08, 2)
-        result["black_market_source"] = "Estimated (official ×1.08 premium)"
+    # ── FINAL FALLBACK ──
+    if not result["black_market"]:
+        result["black_market"] = 1620.0
+        result["black_market_source"] = "Fallback estimate (all live sources failed)"
+        result["status"] = "estimated"
 
-    # Use black market as primary rate
-    primary = result["black_market"] or result["official"] or 1620.0
-    result["primary"] = primary
-    result["status"] = "live" if (result["coingecko"] or result["official"]) else "estimated"
+    if not result["official"]:
+        result["official"] = result["black_market"] * 0.93  # official typically ~7% below P2P
+        result["source_official"] = "Estimated from P2P rate"
 
+    result["primary"] = result["black_market"]
+
+    # Calculate official-to-blackmarket spread
     if result["official"] and result["black_market"]:
         result["spread_pct"] = round(
             ((result["black_market"] - result["official"]) / result["official"]) * 100, 2
         )
     else:
-        result["spread_pct"] = None
+        result["spread_pct"] = 0.0
 
     return result
 
@@ -987,10 +1083,13 @@ if st.session_state.result:
         # ── TOP METRIC CARDS ──
         c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
+            p2p_buy = rd.get("p2p_buy")
+            p2p_sell = rd.get("p2p_sell")
+            p2p_detail = f"Buy ₦{p2p_buy:,.0f} · Sell ₦{p2p_sell:,.0f}" if p2p_buy and p2p_sell else rd.get("black_market_source","P2P")
             st.markdown(f"""<div class="mcard mcard-green">
-            <div class="mcard-label">Black Market Rate</div>
+            <div class="mcard-label">Black Market Rate (P2P)</div>
             <div class="mcard-value" style="color:var(--green);">₦{bm_rate:,.0f}</div>
-            <div class="mcard-sub">{rd.get("black_market_source","P2P/CoinGecko")}</div>
+            <div class="mcard-sub" style="font-size:11px;">{p2p_detail}</div>
             </div>""", unsafe_allow_html=True)
         with c2:
             st.markdown(f"""<div class="mcard mcard-blue">
