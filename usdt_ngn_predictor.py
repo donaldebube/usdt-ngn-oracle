@@ -11,7 +11,7 @@ st.set_page_config(
     page_title="USDT/NGN Oracle",
     page_icon="₦",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # ─────────────────────────────────────────────
@@ -52,10 +52,7 @@ html, body, [class*="css"] {
 
 .stApp { background: var(--bg) !important; }
 
-section[data-testid="stSidebar"] {
-    background: var(--bg2) !important;
-    border-right: 1px solid var(--border) !important;
-}
+section[data-testid="stSidebar"] { display: none !important; }
 
 .block-container { padding: 1.2rem 2rem 2rem 2rem !important; max-width: 1400px !important; }
 
@@ -361,37 +358,6 @@ h1,h2,h3 { font-family: 'IBM Plex Mono', monospace !important; }
     .ocard { overflow-x: auto !important; }
 }
 
-/* sidebar toggle handled by custom JS button */
-
-/* ── TOGGLE BUTTON STYLE ── */
-button[data-testid="baseButton-secondary"][key="sidebar_toggle"],
-div[data-testid="stButton"]:first-child button {
-    background: var(--card) !important;
-    border: 1px solid var(--border2) !important;
-    color: var(--text) !important;
-    border-radius: 8px !important;
-    font-size: 18px !important;
-    width: 42px !important;
-    height: 42px !important;
-    padding: 0 !important;
-    line-height: 1 !important;
-}
-div[data-testid="stButton"]:first-child button:hover {
-    border-color: var(--green) !important;
-    color: var(--green) !important;
-    background: var(--green2) !important;
-}
-
-/* Make sidebar overlay the content on mobile instead of pushing it */
-@media (max-width: 768px) {
-    section[data-testid="stSidebar"] {
-        position: fixed !important;
-        z-index: 9998 !important;
-        height: 100vh !important;
-        overflow-y: auto !important;
-        box-shadow: 4px 0 24px rgba(0,0,0,0.5) !important;
-    }
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -407,8 +373,7 @@ def init():
         "chat": [], "result": None, "last_time": None,
         "history": [],
         "alerts": [], "alert_triggered": [], "user_email": "",
-        "auto_refresh": False, "refresh_interval": 30, "prev_rate": None,
-        "sidebar_open": True
+        "auto_refresh": False, "refresh_interval": 30, "prev_rate": None
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -434,19 +399,6 @@ if not GEMINI_KEY:
     st.error("⚠️ Gemini API key not configured. Please contact the app administrator.")
     st.stop()
 
-# ── SIDEBAR VISIBILITY BASED ON TOGGLE STATE ──
-sidebar_css = """
-<style>
-section[data-testid="stSidebar"] {
-    display: none !important;
-    width: 0 !important;
-    min-width: 0 !important;
-    overflow: hidden !important;
-}
-.block-container { margin-left: 0 !important; }
-</style>
-""" if not st.session_state.get("sidebar_open", True) else ""
-st.markdown(sidebar_css, unsafe_allow_html=True)
 
 
 
@@ -1165,144 +1117,46 @@ def score_bar(label, score, color):
 
 
 # ─────────────────────────────────────────────
-# ── TOGGLE BUTTON (top of main page) ──
+# ── ACTION BAR (top of main page) ──
 # ─────────────────────────────────────────────
-toggle_col, title_col = st.columns([1, 11])
-with toggle_col:
-    icon = "✕ Close" if st.session_state.sidebar_open else "☰ Menu"
-    if st.button(icon, key="sidebar_toggle"):
-        st.session_state.sidebar_open = not st.session_state.sidebar_open
-        st.rerun()
-with title_col:
-    st.markdown(
-        "<p style='font-family:IBM Plex Mono,monospace;font-size:13px;"
-        "color:#4a6080;margin:10px 0 0 0;'>USDT / NGN Oracle</p>",
-        unsafe_allow_html=True
-    )
-
-
-# ─────────────────────────────────────────────
-# ── SIDEBAR ──
-# ─────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("""
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:700;
-    padding:8px 0 18px;border-bottom:1px solid var(--border);margin-bottom:18px;color:var(--text);">
-    ⬡ Oracle Config
-    </div>""", unsafe_allow_html=True)
-
-    st.markdown('''
-    <div style="background:var(--green2);border:1px solid rgba(5,214,138,0.2);border-radius:8px;
-    padding:10px 14px;margin-bottom:14px;">
-      <div style="font-size:10px;color:var(--green);letter-spacing:1px;text-transform:uppercase;
-      font-family:'IBM Plex Mono',monospace;">✓ AI Powered</div>
-      <div style="font-size:12px;color:var(--muted2);margin-top:3px;">
-        Gemini 2.5 Flash + Live News
-      </div>
-    </div>''', unsafe_allow_html=True)
-
+act_c1, act_c2, act_c3, act_c4 = st.columns([2, 1.5, 1.5, 6])
+with act_c1:
     run_btn = st.button("🔍 Run Full Analysis", use_container_width=True, type="primary")
-
-    st.markdown("---")
-
-    # ── AUTO REFRESH ──
-    st.markdown('<p style="font-size:11px;color:var(--muted2);letter-spacing:1px;margin-bottom:8px;">⏱ AUTO-REFRESH</p>', unsafe_allow_html=True)
-    auto_refresh = st.toggle("Auto-refresh analysis", value=st.session_state.auto_refresh)
+with act_c2:
+    auto_refresh = st.toggle("Auto-refresh", value=st.session_state.auto_refresh, key="auto_refresh_toggle")
     st.session_state.auto_refresh = auto_refresh
+with act_c3:
     if auto_refresh:
-        refresh_interval = st.select_slider(
-            "Refresh every",
+        refresh_interval = st.selectbox(
+            "Interval",
             options=[15, 30, 60, 120, 180],
-            value=st.session_state.refresh_interval,
-            format_func=lambda x: f"{x} min"
+            index=[15, 30, 60, 120, 180].index(st.session_state.refresh_interval),
+            format_func=lambda x: f"{x}m",
+            label_visibility="collapsed"
         )
         st.session_state.refresh_interval = refresh_interval
-        st.caption(f"Auto-refreshing every {refresh_interval} min")
-
-    st.markdown("---")
-
-    # ── EMAIL ALERTS ──
-    st.markdown(
-        '<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:14px;margin-bottom:14px;">'
-        '<p style="font-size:11px;color:var(--blue);letter-spacing:1px;margin:0 0 8px;text-transform:uppercase;font-family:\'IBM Plex Mono\',monospace;">'
-        '📧 Email Alerts</p>'
-        '<p style="font-size:11px;color:var(--muted2);margin:0;line-height:1.6;">'
-        'Enter your email to receive alerts when the rate crosses your target.</p></div>',
-        unsafe_allow_html=True
-    )
-
-    user_email = st.text_input(
-        'Your Email Address',
-        value=st.session_state.user_email,
-        placeholder='yourname@gmail.com',
-        help='Enter the email where you want to receive price alerts',
-        label_visibility='visible'
-    )
-    st.session_state.user_email = user_email
-
-    if user_email:
-        if st.button('🧪 Send Test Email', use_container_width=True):
-            try:
-                resend_key = st.secrets.get('RESEND_API_KEY', '')
-            except Exception:
-                resend_key = ''
-            if resend_key:
-                test_html = build_email_html(
-                    'This is a test alert — your email is connected!',
-                    1650.0, 'NEUTRAL', 70, 1640.0, 1660.0,
-                    'This is a test. Real alerts will include live AI predictions.'
-                )
-                ok = send_email_alert(user_email, '✅ USDT/NGN Oracle — Test Alert', test_html, resend_key)
-                if ok:
-                    st.success('✅ Test email sent! Check your inbox (and spam folder).')
-                else:
-                    st.error('❌ Failed to send. Check your email address.')
-            else:
-                st.error('❌ Email service not configured on this deployment.')
-    else:
-        st.caption('Enter your email above to get alerted when your target price is hit.')
-
-    st.markdown('---')
-
-    # ── PRICE ALERTS ──
-    st.markdown('<p style="font-size:11px;color:var(--muted2);letter-spacing:1px;margin-bottom:10px;">🔔 PRICE ALERTS</p>', unsafe_allow_html=True)
-    a_level = st.number_input('Alert price (₦)', min_value=100.0, max_value=9999.0,
-                               value=1700.0, step=10.0, label_visibility='visible')
-    a_type = st.selectbox('Alert when rate goes:', ['above', 'below'], label_visibility='visible')
-    if st.button('+ Add Alert', use_container_width=True):
-        st.session_state.alerts.append({'level': a_level, 'type': a_type})
-        em_icon = '📧' if user_email else '🔕'
-        st.success(f'Alert set: {em_icon} notify when rate goes {a_type} ₦{a_level:,.0f}')
-
-    if st.session_state.alerts:
-        st.markdown('<p style="font-size:11px;color:var(--muted);margin-top:10px;">Active alerts:</p>', unsafe_allow_html=True)
-        for i, a in enumerate(st.session_state.alerts):
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                em_icon = '📧' if user_email else '🔕'
-                st.markdown(
-                    f'<span style="font-size:12px;color:var(--text);">'
-                    f'{em_icon} {"\u25b2" if a["type"]=="above" else "\u25bc"} '
-                    f'₦{a["level"]:,.0f}</span>',
-                    unsafe_allow_html=True
-                )
-            with col2:
-                if st.button('✕', key=f'del_{i}'):
-                    st.session_state.alerts.pop(i)
-                    st.rerun()
-
-    st.markdown('---')
+with act_c4:
     if st.session_state.last_time:
         elapsed = int((datetime.datetime.now() - st.session_state.last_time).total_seconds() // 60)
-        st.markdown(f'<p style="font-size:10px;color:var(--muted);">Last updated: {elapsed}m ago</p>', unsafe_allow_html=True)
+        status_text = f'<span class="live-dot"></span> Updated {elapsed}m ago'
+        if auto_refresh:
+            status_text += f' · Auto-refresh every {st.session_state.refresh_interval}m'
+        st.markdown(
+            f'<p style="font-family:IBM Plex Mono,monospace;font-size:11px;'
+            f'color:var(--muted2);margin:10px 0 0 0;text-align:right;">{status_text}</p>',
+            unsafe_allow_html=True
+        )
+    else:
+        st.markdown(
+            '<p style="font-family:IBM Plex Mono,monospace;font-size:11px;'
+            'color:var(--muted);margin:10px 0 0 0;text-align:right;">Ready to analyze</p>',
+            unsafe_allow_html=True
+        )
 
-    st.markdown(
-        '<div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.7;'
-        'padding-top:14px;border-top:1px solid var(--border);">'
-        '⚠️ Not financial advice. AI predictions carry uncertainty. Always DYOR before converting.'
-        '</div>',
-        unsafe_allow_html=True
-    )
+
+# ─────────────────────────────────────────────
+# (Sidebar removed — controls now in action bar + Alerts tab)
+# ─────────────────────────────────────────────
 
 
 # ─────────────────────────────────────────────
@@ -1358,8 +1212,8 @@ if st.session_state.auto_refresh and st.session_state.last_time and GEMINI_KEY:
         # Show time since last refresh — no sleep, no blocking
         remaining = int((interval_sec - elapsed_sec) // 60)
         secs = int((interval_sec - elapsed_sec) % 60)
-        st.sidebar.markdown(
-            f'<p style="font-size:10px;color:var(--green);">🔄 Next auto-refresh in {remaining}m {secs}s</p>',
+        st.markdown(
+            f'<p style="font-size:10px;color:var(--green);text-align:right;">🔄 Next auto-refresh in {remaining}m {secs}s</p>',
             unsafe_allow_html=True
         )
 
@@ -1478,8 +1332,8 @@ if st.session_state.result:
         st.markdown("<br>", unsafe_allow_html=True)
 
         # ── TABS ──
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "📊 Analysis", "🌍 Global Signals", "💱 Converter", "📈 History", "💬 Chat"
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📊 Analysis", "🌍 Global Signals", "💱 Converter", "📈 History", "💬 Chat", "🔔 Alerts"
         ])
 
         # ══════ TAB 1: ANALYSIS ══════
@@ -1901,6 +1755,98 @@ if st.session_state.result:
                     st.session_state.chat = []
                     st.rerun()
 
+        # ══════ TAB 6: ALERTS ══════
+        with tab6:
+            alert_left, alert_right = st.columns([1, 1])
+
+            with alert_left:
+                st.markdown("""
+                <div class="ocard">
+                  <div class="ocard-title">📧 Email Alerts</div>
+                  <p style="font-size:12px;color:var(--muted2);line-height:1.6;margin-bottom:12px;">
+                    Enter your email to receive notifications when the rate crosses your target price.
+                  </p>
+                </div>""", unsafe_allow_html=True)
+
+                user_email = st.text_input(
+                    "Your Email Address",
+                    value=st.session_state.user_email,
+                    placeholder="yourname@gmail.com",
+                    help="Enter the email where you want to receive price alerts",
+                    key="alert_email_input"
+                )
+                st.session_state.user_email = user_email
+
+                if user_email:
+                    if st.button("🧪 Send Test Email", use_container_width=True, key="test_email_btn"):
+                        try:
+                            resend_key = st.secrets.get("RESEND_API_KEY", "")
+                        except Exception:
+                            resend_key = ""
+                        if resend_key:
+                            test_html = build_email_html(
+                                "This is a test alert — your email is connected!",
+                                1650.0, "NEUTRAL", 70, 1640.0, 1660.0,
+                                "This is a test. Real alerts will include live AI predictions."
+                            )
+                            ok = send_email_alert(user_email, "✅ USDT/NGN Oracle — Test Alert", test_html, resend_key)
+                            if ok:
+                                st.success("✅ Test email sent! Check your inbox (and spam folder).")
+                            else:
+                                st.error("❌ Failed to send. Check your email address.")
+                        else:
+                            st.error("❌ Email service not configured on this deployment.")
+                else:
+                    st.caption("Enter your email above to get alerted when your target price is hit.")
+
+            with alert_right:
+                st.markdown("""
+                <div class="ocard">
+                  <div class="ocard-title">🔔 Price Alerts</div>
+                  <p style="font-size:12px;color:var(--muted2);line-height:1.6;margin-bottom:12px;">
+                    Set alerts to be notified when the USDT/NGN rate crosses a specific level.
+                  </p>
+                </div>""", unsafe_allow_html=True)
+
+                a_level = st.number_input("Alert price (₦)", min_value=100.0, max_value=9999.0,
+                                           value=1700.0, step=10.0, key="alert_price_input")
+                a_type = st.selectbox("Alert when rate goes:", ["above", "below"], key="alert_type_select")
+                if st.button("+ Add Alert", use_container_width=True, key="add_alert_btn"):
+                    st.session_state.alerts.append({"level": a_level, "type": a_type})
+                    em_icon = "📧" if user_email else "🔕"
+                    st.success(f"Alert set: {em_icon} notify when rate goes {a_type} ₦{a_level:,.0f}")
+
+                if st.session_state.alerts:
+                    st.markdown('<div class="ocard"><div class="ocard-title">Active Alerts</div>', unsafe_allow_html=True)
+                    for i, a in enumerate(st.session_state.alerts):
+                        acol1, acol2 = st.columns([4, 1])
+                        with acol1:
+                            em_icon = "📧" if user_email else "🔕"
+                            arrow = "\u25b2" if a["type"] == "above" else "\u25bc"
+                            st.markdown(
+                                f'<span style="font-size:13px;color:var(--text);">'
+                                f'{em_icon} {arrow} ₦{a["level"]:,.0f} ({a["type"]})</span>',
+                                unsafe_allow_html=True
+                            )
+                        with acol2:
+                            if st.button("✕", key=f"del_alert_{i}"):
+                                st.session_state.alerts.pop(i)
+                                st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("""
+                    <div class="ocard" style="text-align:center;padding:24px;">
+                      <div style="font-size:24px;margin-bottom:8px;opacity:0.3;">🔔</div>
+                      <p style="color:var(--muted2);font-size:12px;">No active alerts. Add one above to get started.</p>
+                    </div>""", unsafe_allow_html=True)
+
+            # Disclaimer
+            st.markdown("""
+            <div style="font-size:10px;color:var(--muted);margin-top:16px;line-height:1.7;
+            padding:14px 16px;border-top:1px solid var(--border);text-align:center;">
+              ⚠️ Not financial advice. AI predictions carry uncertainty. Always DYOR before converting.
+            </div>""", unsafe_allow_html=True)
+
 # ── EMPTY STATE ──
 else:
     st.markdown("""
@@ -1926,7 +1872,7 @@ else:
 
       <p style="color:var(--muted);max-width:480px;margin:0 auto 36px;
       font-size:13px;line-height:1.7;">
-        Click <strong style="color:var(--green);">Run Full Analysis</strong> in the sidebar
+        Click <strong style="color:var(--green);">Run Full Analysis</strong> above
         to get your latest 24-hour prediction, confidence score, and trade recommendation.
       </p>
 
