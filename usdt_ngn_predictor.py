@@ -332,7 +332,7 @@ def init():
     for k, v in {
         "chat": [], "result": None, "last_time": None,
         "history": [],
-        "alerts": [], "alert_triggered": [], "tg_bot_token": "", "tg_chat_id": ""
+        "alerts": [], "alert_triggered": [], "user_email": ""
     }.items():
         if k not in st.session_state:
             st.session_state[k] = v
@@ -922,28 +922,111 @@ If asked about the rate, give the number. If asked for advice, give it clearly w
 # ─────────────────────────────────────────────
 # CHECK ALERTS
 # ─────────────────────────────────────────────
-def send_telegram(bot_token: str, chat_id: str, message: str) -> bool:
-    """Send a Telegram message via bot."""
-    if not bot_token or not chat_id:
+def send_email_alert(to_email: str, subject: str, html_body: str, resend_key: str) -> bool:
+    """Send email alert via Resend.com API."""
+    if not to_email or not resend_key:
         return False
     try:
-        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-        payload = {
-            "chat_id": chat_id,
-            "text": message,
-            "parse_mode": "HTML"
-        }
-        r = requests.post(url, json=payload, timeout=10)
+        r = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {resend_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "from": "USDT/NGN Oracle <onboarding@resend.dev>",
+                "to": [to_email],
+                "subject": subject,
+                "html": html_body
+            },
+            timeout=15
+        )
         return r.status_code == 200
     except:
         return False
 
 
+def build_email_html(msg: str, rate: float, direction: str, confidence: int,
+                     pred_low: float, pred_high: float, recommendation: str) -> str:
+    """Build a clean HTML email for price alerts."""
+    dir_color = "#05d68a" if direction == "BULLISH" else "#f0455a" if direction == "BEARISH" else "#f5a623"
+    dir_arrow = "▲" if direction == "BULLISH" else "▼" if direction == "BEARISH" else "◆"
+    return f"""
+    <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;
+    background:#0c1220;color:#dce8f8;border-radius:16px;overflow:hidden;">
+      <div style="background:linear-gradient(135deg,#111d2e,#0c1220);
+      padding:28px 32px;border-bottom:2px solid #05d68a;">
+        <div style="font-size:11px;letter-spacing:3px;color:#4f8ef7;
+        text-transform:uppercase;margin-bottom:8px;">🇳🇬 USDT/NGN Oracle</div>
+        <div style="font-size:24px;font-weight:700;color:#dce8f8;">
+          Price Alert Triggered
+        </div>
+      </div>
+      <div style="padding:28px 32px;">
+        <div style="background:#111d2e;border:1px solid #1a2942;border-left:4px solid #f5a623;
+        border-radius:10px;padding:16px 20px;margin-bottom:20px;font-size:16px;
+        font-weight:600;color:#f5a623;">
+          🔔 {msg}
+        </div>
+        <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid #1a2942;
+            color:#6b84a0;font-size:13px;">AI Prediction</td>
+            <td style="padding:10px 0;border-bottom:1px solid #1a2942;
+            text-align:right;font-weight:700;color:{dir_color};">
+              {dir_arrow} {direction}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid #1a2942;
+            color:#6b84a0;font-size:13px;">Current Rate</td>
+            <td style="padding:10px 0;border-bottom:1px solid #1a2942;
+            text-align:right;font-weight:700;color:#05d68a;">
+              ₦{rate:,.0f}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;border-bottom:1px solid #1a2942;
+            color:#6b84a0;font-size:13px;">Predicted Range (24H)</td>
+            <td style="padding:10px 0;border-bottom:1px solid #1a2942;
+            text-align:right;font-weight:600;color:#dce8f8;">
+              ₦{pred_low:,.0f} – ₦{pred_high:,.0f}
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:10px 0;color:#6b84a0;font-size:13px;">
+              AI Confidence</td>
+            <td style="padding:10px 0;text-align:right;font-weight:700;
+            color:#f5a623;">{confidence}%</td>
+          </tr>
+        </table>
+        <div style="background:#111d2e;border:1px solid #1a2942;border-radius:10px;
+        padding:16px 20px;margin-bottom:24px;">
+          <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;
+          color:#4f8ef7;margin-bottom:8px;">AI Recommendation</div>
+          <div style="font-size:13px;line-height:1.7;color:#b0c8e8;">
+            {recommendation}
+          </div>
+        </div>
+        <div style="font-size:11px;color:#4a6080;text-align:center;
+        padding-top:16px;border-top:1px solid #1a2942;line-height:1.6;">
+          ⚠️ This alert is for informational purposes only.<br>
+          Not financial advice. Always do your own research.
+        </div>
+      </div>
+    </div>
+    """
+
+
 def check_alerts(rate: float, prediction: dict = {}):
-    """Check alerts and send Telegram notifications if triggered."""
+    """Check alerts and send email notifications if triggered."""
     triggered = []
-    bot_token = st.session_state.get("tg_bot_token", "")
-    chat_id = st.session_state.get("tg_chat_id", "")
+    user_email = st.session_state.get("user_email", "")
+    resend_key = ""
+    try:
+        resend_key = st.secrets.get("RESEND_API_KEY", "")
+    except:
+        pass
 
     for i, a in enumerate(st.session_state.alerts):
         msg = ""
@@ -951,32 +1034,25 @@ def check_alerts(rate: float, prediction: dict = {}):
         confidence = prediction.get("confidence_score", 0)
         pred_low = prediction.get("predicted_low", 0)
         pred_high = prediction.get("predicted_high", 0)
-        recommendation = prediction.get("trade_recommendation", "")
+        recommendation = prediction.get("trade_recommendation", "N/A")
 
         if a["type"] == "above" and rate >= a["level"] and i not in st.session_state.alert_triggered:
-            msg = f"🔔 Rate crossed ABOVE ₦{a['level']:,} — now at ₦{rate:,.0f}"
-            triggered.append((i, msg))
+            msg = f"Rate crossed ABOVE ₦{a['level']:,} — now at ₦{rate:,.0f}"
+            triggered.append((i, "🔔 " + msg))
             st.session_state.alert_triggered.append(i)
 
         elif a["type"] == "below" and rate <= a["level"] and i not in st.session_state.alert_triggered:
-            msg = f"🔔 Rate dropped BELOW ₦{a['level']:,} — now at ₦{rate:,.0f}"
-            triggered.append((i, msg))
+            msg = f"Rate dropped BELOW ₦{a['level']:,} — now at ₦{rate:,.0f}"
+            triggered.append((i, "🔔 " + msg))
             st.session_state.alert_triggered.append(i)
 
-        if msg and bot_token and chat_id:
-            parts = [
-                "<b>\U0001f1f3\U0001f1ec USDT/NGN Oracle Alert</b>",
-                "\u2501" * 15,
-                "<b>\u26a1 " + msg + "</b>",
-                "\U0001f4ca <b>AI Prediction:</b> " + str(direction),
-                "\U0001f3af <b>Range:</b> \u20a6" + f"{pred_low:,.0f}" + " - \u20a6" + f"{pred_high:,.0f}",
-                "\U0001f4a1 <b>Confidence:</b> " + str(confidence) + "%",
-                "\U0001f4dd <b>Recommendation:</b>\n" + str(recommendation),
-                "\u2501" * 15,
-                "<i>USDT/NGN Oracle - Not financial advice</i>",
-            ]
-            tg_message = "\n\n".join(parts)
-            send_telegram(bot_token, chat_id, tg_message)
+        if msg and user_email and resend_key:
+            subject = f"🔔 USDT/NGN Alert: {msg}"
+            html = build_email_html(
+                msg, rate, direction, confidence,
+                pred_low, pred_high, recommendation
+            )
+            send_email_alert(user_email, subject, html, resend_key)
 
     return triggered
 
@@ -1022,104 +1098,88 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ── TELEGRAM SETUP ──
-    st.markdown('''<div style="background:var(--bg3);border:1px solid var(--border2);
-    border-radius:10px;padding:14px;margin-bottom:14px;">
-    <p style="font-size:11px;color:var(--blue);letter-spacing:1px;margin:0 0 10px;
-    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;">
-    📲 Telegram Alerts</p>''', unsafe_allow_html=True)
-
-    tg_token = st.text_input(
-        "Bot Token",
-        value=st.session_state.tg_bot_token,
-        placeholder="123456:ABC-DEF...",
-        type="password",
-        help="Get this from @BotFather on Telegram",
-        label_visibility="visible"
+    # ── EMAIL ALERTS ──
+    st.markdown(
+        '<div style="background:var(--bg3);border:1px solid var(--border2);border-radius:10px;padding:14px;margin-bottom:14px;">'
+        '<p style="font-size:11px;color:var(--blue);letter-spacing:1px;margin:0 0 8px;text-transform:uppercase;font-family:\'IBM Plex Mono\',monospace;">'
+        '📧 Email Alerts</p>'
+        '<p style="font-size:11px;color:var(--muted2);margin:0;line-height:1.6;">'
+        'Enter your email to receive alerts when the rate crosses your target.</p></div>',
+        unsafe_allow_html=True
     )
-    st.session_state.tg_bot_token = tg_token
 
-    tg_chat = st.text_input(
-        "Your Chat ID",
-        value=st.session_state.tg_chat_id,
-        placeholder="e.g. 123456789",
-        help="Get this from @userinfobot on Telegram",
-        label_visibility="visible"
+    user_email = st.text_input(
+        'Your Email Address',
+        value=st.session_state.user_email,
+        placeholder='yourname@gmail.com',
+        help='Enter the email where you want to receive price alerts',
+        label_visibility='visible'
     )
-    st.session_state.tg_chat_id = tg_chat
+    st.session_state.user_email = user_email
 
-    if tg_token and tg_chat:
-        if st.button("🧪 Test Telegram", use_container_width=True):
-            ok = send_telegram(tg_token, tg_chat,
-                "✅ <b>USDT/NGN Oracle</b> — Telegram alerts are working! You will receive notifications here when your price alerts trigger.")
-            if ok:
-                st.success("✅ Test message sent!")
+    if user_email:
+        if st.button('🧪 Send Test Email', use_container_width=True):
+            try:
+                resend_key = st.secrets.get('RESEND_API_KEY', '')
+            except Exception:
+                resend_key = ''
+            if resend_key:
+                test_html = build_email_html(
+                    'This is a test alert — your email is connected!',
+                    1650.0, 'NEUTRAL', 70, 1640.0, 1660.0,
+                    'This is a test. Real alerts will include live AI predictions.'
+                )
+                ok = send_email_alert(user_email, '✅ USDT/NGN Oracle — Test Alert', test_html, resend_key)
+                if ok:
+                    st.success('✅ Test email sent! Check your inbox (and spam folder).')
+                else:
+                    st.error('❌ Failed to send. Check your email address.')
             else:
-                st.error("❌ Failed — check your Bot Token and Chat ID")
+                st.error('❌ Email service not configured on this deployment.')
     else:
-        st.markdown('<p style="font-size:10px;color:var(--muted);margin-top:4px;line-height:1.6;">Enter your Bot Token + Chat ID above to receive Telegram notifications when your price alerts trigger. See setup guide below.</p>', unsafe_allow_html=True)
+        st.caption('Enter your email above to get alerted when your target price is hit.')
 
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('---')
 
     # ── PRICE ALERTS ──
     st.markdown('<p style="font-size:11px;color:var(--muted2);letter-spacing:1px;margin-bottom:10px;">🔔 PRICE ALERTS</p>', unsafe_allow_html=True)
-    a_level = st.number_input("Alert price (₦)", min_value=100.0, max_value=9999.0,
-                               value=1700.0, step=10.0, label_visibility="visible")
-    a_type = st.selectbox("Alert when rate goes:", ["above", "below"], label_visibility="visible")
-    if st.button("+ Add Alert", use_container_width=True):
-        st.session_state.alerts.append({"level": a_level, "type": a_type})
-        st.success(f"Alert set: rate {a_type} ₦{a_level:,}")
+    a_level = st.number_input('Alert price (₦)', min_value=100.0, max_value=9999.0,
+                               value=1700.0, step=10.0, label_visibility='visible')
+    a_type = st.selectbox('Alert when rate goes:', ['above', 'below'], label_visibility='visible')
+    if st.button('+ Add Alert', use_container_width=True):
+        st.session_state.alerts.append({'level': a_level, 'type': a_type})
+        em_icon = '📧' if user_email else '🔕'
+        st.success(f'Alert set: {em_icon} notify when rate goes {a_type} ₦{a_level:,.0f}')
 
     if st.session_state.alerts:
         st.markdown('<p style="font-size:11px;color:var(--muted);margin-top:10px;">Active alerts:</p>', unsafe_allow_html=True)
         for i, a in enumerate(st.session_state.alerts):
-            col1, col2 = st.columns([3,1])
+            col1, col2 = st.columns([3, 1])
             with col1:
-                tg_icon = "📲" if tg_token and tg_chat else "🔕"
-                st.markdown(f'<span style="font-size:12px;color:var(--text);">{tg_icon} {"▲" if a["type"]=="above" else "▼"} ₦{a["level"]:,}</span>', unsafe_allow_html=True)
+                em_icon = '📧' if user_email else '🔕'
+                st.markdown(
+                    f'<span style="font-size:12px;color:var(--text);">'
+                    f'{em_icon} {"\u25b2" if a["type"]=="above" else "\u25bc"} '
+                    f'₦{a["level"]:,.0f}</span>',
+                    unsafe_allow_html=True
+                )
             with col2:
-                if st.button("✕", key=f"del_{i}"):
+                if st.button('✕', key=f'del_{i}'):
                     st.session_state.alerts.pop(i)
                     st.rerun()
 
-    st.markdown("---")
+    st.markdown('---')
     if st.session_state.last_time:
         elapsed = int((datetime.datetime.now() - st.session_state.last_time).total_seconds() // 60)
         st.markdown(f'<p style="font-size:10px;color:var(--muted);">Last updated: {elapsed}m ago</p>', unsafe_allow_html=True)
 
-    st.markdown("""
-    <div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.7;
-    padding-top:14px;border-top:1px solid var(--border);">
-    ⚠️ Not financial advice. AI predictions carry uncertainty. Always DYOR before converting.
-    </div>""", unsafe_allow_html=True)
-
-    # Telegram setup guide
-    with st.expander("📲 How to set up Telegram Alerts"):
-        st.markdown("""
-**Step 1 — Create your Telegram Bot (free)**
-1. Open Telegram and search for **@BotFather**
-2. Send the message: `/newbot`
-3. Give your bot a name e.g. *USDT NGN Oracle*
-4. Give it a username e.g. *usdtngn_oracle_bot*
-5. BotFather will give you a **Bot Token** — copy it
-
-**Step 2 — Get your Chat ID**
-1. Search for **@userinfobot** on Telegram
-2. Send it any message
-3. It will reply with your **Chat ID** — copy the number
-
-**Step 3 — Enter both in the sidebar**
-1. Paste your **Bot Token** in the sidebar
-2. Paste your **Chat ID** in the sidebar
-3. Click **Test Telegram** to confirm it's working
-
-**Step 4 — Set your price alert**
-1. Enter the rate level you want to be alerted at
-2. Choose *above* or *below*
-3. Click **+ Add Alert**
-
-Now every time you click **Run Full Analysis** and the rate crosses your target, you'll get an instant Telegram message with the rate, AI prediction, and recommendation! 🎉
-        """)
+    st.markdown(
+        '<div style="font-size:10px;color:var(--muted);margin-top:12px;line-height:1.7;'
+        'padding-top:14px;border-top:1px solid var(--border);">'
+        '⚠️ Not financial advice. AI predictions carry uncertainty. Always DYOR before converting.'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
 
 # ─────────────────────────────────────────────
