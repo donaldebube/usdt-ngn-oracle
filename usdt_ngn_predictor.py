@@ -355,7 +355,12 @@ except Exception:
 # GEMINI CALL
 # ─────────────────────────────────────────────
 def gemini(prompt: str, key: str, system: str = "") -> str:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
+    models = [
+        "gemini-2.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+    ]
     parts = []
     if system:
         parts.append({"text": f"SYSTEM:\n{system}\n\n---\n\n"})
@@ -364,18 +369,27 @@ def gemini(prompt: str, key: str, system: str = "") -> str:
         "contents": [{"parts": parts}],
         "generationConfig": {"temperature": 0.25, "maxOutputTokens": 8192}
     }
-    try:
-        r = requests.post(url, json=payload, timeout=45)
-        r.raise_for_status()
-        return r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    except requests.exceptions.HTTPError as e:
-        sc = r.status_code
-        if sc == 403: return "❌ API key invalid or Gemini API not enabled."
-        if sc == 429: return "❌ Rate limit hit. Wait 60 seconds and retry."
-        if sc == 400: return f"❌ Bad request: {r.text[:200]}"
-        return f"❌ HTTP {sc}: {e}"
-    except Exception as e:
-        return f"❌ Connection error: {e}"
+    last_error = ""
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+        try:
+            r = requests.post(url, json=payload, timeout=45)
+            if r.status_code == 200:
+                return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            elif r.status_code == 429:
+                return "❌ Rate limit hit. Wait 60 seconds and retry."
+            elif r.status_code == 403:
+                return "❌ API key invalid. Go to aistudio.google.com to verify your key."
+            elif r.status_code == 404:
+                last_error = f"Model {model} not found, trying next..."
+                continue
+            else:
+                last_error = f"HTTP {r.status_code}"
+                continue
+        except Exception as e:
+            last_error = f"Connection error: {e}"
+            continue
+    return f"❌ All models failed. Last error: {last_error}"
 
 
 # ─────────────────────────────────────────────
