@@ -435,21 +435,18 @@ if not GEMINI_KEY:
     st.stop()
 
 # ── SIDEBAR VISIBILITY BASED ON TOGGLE STATE ──
-if not st.session_state.get("sidebar_open", True):
-    st.markdown("""
-    <style>
-    section[data-testid="stSidebar"] {
-        display: none !important;
-        width: 0px !important;
-        min-width: 0px !important;
-    }
-    .block-container {
-        padding-left: 1rem !important;
-        margin-left: 0 !important;
-        max-width: 100% !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+sidebar_css = """
+<style>
+section[data-testid="stSidebar"] {
+    display: none !important;
+    width: 0 !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+}
+.block-container { margin-left: 0 !important; }
+</style>
+""" if not st.session_state.get("sidebar_open", True) else ""
+st.markdown(sidebar_css, unsafe_allow_html=True)
 
 
 
@@ -1170,12 +1167,18 @@ def score_bar(label, score, color):
 # ─────────────────────────────────────────────
 # ── TOGGLE BUTTON (top of main page) ──
 # ─────────────────────────────────────────────
-toggle_col, _ = st.columns([1, 11])
+toggle_col, title_col = st.columns([1, 11])
 with toggle_col:
-    icon = "✕" if st.session_state.sidebar_open else "☰"
-    if st.button(icon, key="sidebar_toggle", help="Open / close menu"):
+    icon = "✕ Close" if st.session_state.sidebar_open else "☰ Menu"
+    if st.button(icon, key="sidebar_toggle"):
         st.session_state.sidebar_open = not st.session_state.sidebar_open
         st.rerun()
+with title_col:
+    st.markdown(
+        "<p style='font-family:IBM Plex Mono,monospace;font-size:13px;"
+        "color:#4a6080;margin:10px 0 0 0;'>USDT / NGN Oracle</p>",
+        unsafe_allow_html=True
+    )
 
 
 # ─────────────────────────────────────────────
