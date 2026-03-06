@@ -1249,16 +1249,13 @@ if st.session_state.auto_refresh and st.session_state.last_time and GEMINI_KEY:
                 })
         st.rerun()
     else:
-        # Show countdown to next refresh
+        # Show time since last refresh — no sleep, no blocking
         remaining = int((interval_sec - elapsed_sec) // 60)
         secs = int((interval_sec - elapsed_sec) % 60)
         st.sidebar.markdown(
-            f'<p style="font-size:10px;color:var(--green);">🔄 Next refresh in {remaining}m {secs}s</p>',
+            f'<p style="font-size:10px;color:var(--green);">🔄 Next auto-refresh in {remaining}m {secs}s</p>',
             unsafe_allow_html=True
         )
-        import time
-        time.sleep(30)
-        st.rerun()
 
 
 # ─────────────────────────────────────────────
